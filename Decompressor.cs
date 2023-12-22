@@ -25,14 +25,14 @@ public class Decompressor
     {
         (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), (0, 10), (1, 11), (1, 13),
         (1, 15), (1, 17), (2, 19), (2, 23), (2, 27), (2, 31), (3, 35), (3, 43), (3, 51), (3, 59),
-        (4, 67), (4, 83), (4, 99), (4, 115), (5, 131), (5, 163), (5, 195), (5, 227), (0, 258), (0, 259)
+        (4, 67), (4, 83), (4, 99), (4, 115), (5, 131), (5, 163), (5, 195), (5, 227), (0, 258)
     };
 
     private static readonly (int, int)[] DISTANCES = new[]
     {
         (0, 1), (0, 2), (0, 3), (0, 4), (1, 5), (1, 7), (2, 9), (2, 13), (3, 17), (3, 25),
         (4, 33), (4, 49), (5, 65), (5, 97), (6, 129), (6, 193), (7, 257), (7, 385), (8, 513), (8, 769),
-        (9, 1025), (9, 1537), (10, 2049), (10, 3073), (11, 4097), (11, 6145), (12, 8193), (12, 12289), (13, 16385), (13, 24577), (0, 32769)
+        (9, 1025), (9, 1537), (10, 2049), (10, 3073), (11, 4097), (11, 6145), (12, 8193), (12, 12289), (13, 16385), (13, 24577)
     };
 
     public Decompressor(byte[] bytesArray)
@@ -45,7 +45,7 @@ public class Decompressor
 
     private void Log(int verbosity, params object[] args)
     {
-        Console.WriteLine("[inflate] " + string.Join(" ", args));
+        // Console.WriteLine("[inflate] " + string.Join(" ", args));
     }
     private int ReadDataElement(int nbits)
     {
@@ -138,7 +138,7 @@ public class Decompressor
         for (int i = 1; i < MAX_BITS; i++)
         {
             value = (value << 1) | NextBit(); // Assuming NextBit() is a method that retrieves the next bit
-            if (tree[i] != null && tree[i].TryGetValue(value, out int symbol))
+            if (tree[i].TryGetValue(value, out int symbol))
             {
                 return symbol;
             }
@@ -186,22 +186,19 @@ public class Decompressor
         
         for (int i = 0; i < hclen; i++)
         {
-            int x = foo[i];
-            codelengthsAlphabetLengths[x] = ReadDataElement(3);
-            Debug.Log(codelengthsAlphabetLengths[x]);
+            codelengthsAlphabetLengths[foo[i]] = ReadDataElement(3);
         }
-        Debug.Log(hclen);
         Dictionary<int, int>[] codelengthsTree = CodeLengthsToCodes(codelengthsAlphabetLengths);
 
-        Log(2, "[dyn] Codelengths tree:", codelengthsTree);
+        Log(2, "[dyn] Codelengths tree:", codelengthsTree.String());
 
         int [] litlenCodelengths = ReadCompressedCodelengths(codelengthsTree, hlit);
         int [] distCodelengths = ReadCompressedCodelengths(codelengthsTree, hdist);
         Dictionary<int, int>[] litlenTree = CodeLengthsToCodes(litlenCodelengths);
         Dictionary<int, int>[] distTree = CodeLengthsToCodes(distCodelengths);
 
-        Log(2, "[dyn] Length tree:", litlenTree);
-        Log(2, "[dyn] Distance tree:", distTree);
+        Log(2, "[dyn] Length tree:", litlenTree.String());
+        Log(2, "[dyn] Distance tree:", distTree.String());
 
         List<(string, int, int)> symbols = new List<(string, int, int)>();
         while (true)
@@ -312,8 +309,21 @@ public class Decompressor
 
     private static Dictionary<int, int>[] CodeLengthsToCodes(int[] codelengths)
     {
-        int[] blCount = Enumerable.Range(0, MAXBITS).Select(i => codelengths.Count(x => x == i)).ToArray();
-        Dictionary<int, int>[] tree = new Dictionary<int, int>[codelengths.Length];
+        List<int> blCountList = new List<int>();
+        for (int i = 0; i < 20; i++)
+        {
+            int count = 0;
+            foreach (int length in codelengths)
+            {
+                if (length == i)
+                {
+                    count++;
+                }
+            }
+            blCountList.Add(count);
+        }
+        int[] blCount = blCountList.ToArray();
+        int[] tree = new int[codelengths.Length];
         int[] nextCode = new int[MAXBITS];
         int code = 0;
         blCount[0] = 0;
@@ -326,18 +336,29 @@ public class Decompressor
 
         for (int n = 0; n < codelengths.Length; n++)
         {
-            int length = codelengths[n];
-            if (length > 0)
+            int leng = codelengths[n];
+            if (leng > 0)
             {
-                tree[n] = new Dictionary<int, int>();
-                tree[n][nextCode[length]] = n;
-                nextCode[length]++;
-            }
-            else
-            {
-                Debug.Log("LENGTH IS ZERO AT INDEX " + n);
+                tree[n] = nextCode[leng];
+                nextCode[leng]++;
             }
         }
-        return tree;
+
+        List<Dictionary<int, int>> codes = new List<Dictionary<int, int>>();
+        for (int x = 0; x < MAXBITS; x++)
+        {
+            Dictionary<int, int> new_codes = new Dictionary<int, int>();
+            int length = tree.Length;
+            for (int symbol = 0; symbol < length; symbol++)
+            {
+                code = tree[symbol];
+                if (codelengths[symbol] == x) // THIS IS NOT COMPLETE. TREE DOESNT RETURN -1 WHEN IT WOULD HAVE BEEN NONE IN THE PYTHON VERSION.
+                {
+                    new_codes[code] = symbol;
+                }
+            }
+            codes.Add(new_codes);
+        }
+        return codes.ToArray();
     }
 }
