@@ -1,4 +1,10 @@
-/*Derived with much help from David Buchanan: https://github.com/DavidBuchanan314*/ 
+/*
+
+Derived with much help from David Buchanan
+https://github.com/DavidBuchanan314
+https://gist.github.com/DavidBuchanan314/423fa0ce44253a02184a6d654325779f
+Thank you for your help David. Hopefully this library can help a lot of people better understand PNG Encoding when complete.
+*/ 
 
 using System;
 using System.Collections.Generic;
