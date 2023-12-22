@@ -14,12 +14,12 @@ public class Decompressor
 {
     private readonly byte[] compressedBytes;
     private int byteIndex;
-    private int prevBit;
+    private int currentBit;
     private byte currentByte;
+    private byte lastByte;
     private byte[] decompressedBytes;
-    private readonly int verbosity;
 
-    private const int MaxBits = 20;
+    private const int MAXBITS = 20;
 
     private static readonly (int, int)[] LENGTHS = new[]
     {
@@ -35,21 +35,17 @@ public class Decompressor
         (9, 1025), (9, 1537), (10, 2049), (10, 3073), (11, 4097), (11, 6145), (12, 8193), (12, 12289), (13, 16385), (13, 24577), (0, 32769)
     };
 
-    public Decompressor(byte[] bytesArray, int verbosity = 3)
+    public Decompressor(byte[] bytesArray)
     {
         compressedBytes = bytesArray;
         byteIndex = 0;
-        prevBit = 7;
+        currentBit = 7;
         decompressedBytes = new byte[0];
-        this.verbosity = verbosity;
     }
 
     private void Log(int verbosity, params object[] args)
     {
-        if (verbosity <= this.verbosity)
-        {
-            Console.WriteLine("[inflate] " + string.Join(" ", args));
-        }
+        Console.WriteLine("[inflate] " + string.Join(" ", args));
     }
     private int ReadDataElement(int nbits)
     {
@@ -71,16 +67,19 @@ public class Decompressor
     }
     private int NextBit()
     {
-        if (prevBit == 7)
+        if (currentBit == 7)
         {
-            prevBit = 0;
-            currentByte = compressedBytes[byteIndex++];
+            currentBit = 0;
+            lastByte = currentByte;
+            if(byteIndex < compressedBytes.Length)
+                currentByte = compressedBytes[byteIndex];
+            byteIndex++;
         }
         else
         {
-            prevBit++;
+            currentBit++;
         }
-        int bit = (currentByte >> prevBit) & 1;
+        int bit = (currentByte >> currentBit) & 1;
         return bit;
     }
     private int ReadHuffmanSymbol()
@@ -135,17 +134,18 @@ public class Decompressor
     private int ReadDynamicHuffmanSymbol(Dictionary<int, int>[] tree)
     {
         int value = 0;
-        for (int i = 1; i < MaxBits; i++)
+        int MAX_BITS = tree.Length; // Assuming MAX_BITS is the length of the tree array
+        for (int i = 1; i < MAX_BITS; i++)
         {
-            value = (value << 1) | NextBit();
-            if (tree[i].TryGetValue(value, out int symbol))
+            value = (value << 1) | NextBit(); // Assuming NextBit() is a method that retrieves the next bit
+            if (tree[i] != null && tree[i].TryGetValue(value, out int symbol))
             {
                 return symbol;
             }
         }
-        throw new Exception("This is not supposed to happen");
+        throw new Exception("THIS SHOULD NOT HAPPEN");
     }
-    private List<int> ReadCompressedCodelengths(Dictionary<int, int>[] tree, int num)
+    private int [] ReadCompressedCodelengths(Dictionary<int, int>[] tree, int num)
     {
         List<int> codelengths = new List<int>();
         while (codelengths.Count < num)
@@ -172,7 +172,7 @@ public class Decompressor
         {
             throw new Exception("Invalid number of codelengths");
         }
-        return codelengths;
+        return codelengths.ToArray();
     }
     private List<(string, int, int)> ReadDynamicHuffmanBlock()
     {
@@ -182,17 +182,21 @@ public class Decompressor
 
         int[] codelengthsAlphabetLengths = new int[19];
         int[] foo = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
-        foreach (int x in foo.Take(hclen))
-        {
-            codelengthsAlphabetLengths[x] = ReadDataElement(3);
-        }
 
+        
+        for (int i = 0; i < hclen; i++)
+        {
+            int x = foo[i];
+            codelengthsAlphabetLengths[x] = ReadDataElement(3);
+            Debug.Log(codelengthsAlphabetLengths[x]);
+        }
+        Debug.Log(hclen);
         Dictionary<int, int>[] codelengthsTree = CodeLengthsToCodes(codelengthsAlphabetLengths);
 
         Log(2, "[dyn] Codelengths tree:", codelengthsTree);
 
-        int [] litlenCodelengths = ReadCompressedCodelengths(codelengthsTree, hlit).ToArray();
-        int [] distCodelengths = ReadCompressedCodelengths(codelengthsTree, hdist).ToArray();
+        int [] litlenCodelengths = ReadCompressedCodelengths(codelengthsTree, hlit);
+        int [] distCodelengths = ReadCompressedCodelengths(codelengthsTree, hdist);
         Dictionary<int, int>[] litlenTree = CodeLengthsToCodes(litlenCodelengths);
         Dictionary<int, int>[] distTree = CodeLengthsToCodes(distCodelengths);
 
@@ -264,7 +268,7 @@ public class Decompressor
         if (btype == 0b00)
         {
             Log(1, "Parsing Non-compressed block (BTYPE=00)");
-            while (prevBit != 7)
+            while (currentBit != 7)
             {
                 int bit = NextBit();
                 if (bit != 0)
@@ -308,13 +312,13 @@ public class Decompressor
 
     private static Dictionary<int, int>[] CodeLengthsToCodes(int[] codelengths)
     {
-        int[] blCount = Enumerable.Range(0, MaxBits).Select(i => codelengths.Count(x => x == i)).ToArray();
+        int[] blCount = Enumerable.Range(0, MAXBITS).Select(i => codelengths.Count(x => x == i)).ToArray();
         Dictionary<int, int>[] tree = new Dictionary<int, int>[codelengths.Length];
-        int[] nextCode = new int[MaxBits];
+        int[] nextCode = new int[MAXBITS];
         int code = 0;
         blCount[0] = 0;
 
-        for (int bits = 1; bits < MaxBits; bits++)
+        for (int bits = 1; bits < MAXBITS; bits++)
         {
             code = (code + blCount[bits - 1]) << 1;
             nextCode[bits] = code;
@@ -329,8 +333,11 @@ public class Decompressor
                 tree[n][nextCode[length]] = n;
                 nextCode[length]++;
             }
+            else
+            {
+                Debug.Log("LENGTH IS ZERO AT INDEX " + n);
+            }
         }
         return tree;
     }
 }
-
